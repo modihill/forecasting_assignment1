@@ -1,0 +1,484 @@
+---
+title: "MATH1307 Forecasting Assignment 1"
+author: "Hill Jigishkumar Modi (S3827516)"
+date: "21/08/2021"
+output: 
+  html_document:
+    fig_height: 7
+    fig_width: 9
+    fig_caption: yes
+
+---
+
+# Introduction
+
+The aim of this report is to analyse monthly averages of ASX All Ordinaries (Ords) Price Index, Gold price (AUD),  Crude Oil (Brent, USD/bbl) and Copper (USD/tonne) starting from January 2004. 
+
+The analysis mainly focuses on following 3 parts.
+  
+  1.The existence of nonstationarity in dataset.
+  
+  2.The impact of the components of a time series data on the given dataset
+  
+  3.The most accurate and suitable distributed lag model for the ASX price index
+
+
+# Preparing Dataset for the Time Series Analysis
+```{r}
+library(readr)
+library(tseries)
+library(TSA)
+library(dLagM)
+library(forecast)
+library(car)
+library(x12)
+library(kableExtra)
+```
+
+```{r}
+# Descriptive Analysis function
+descriptive_analysis <- function(ts, object)
+{
+  plot(ts,
+       ylab = c(paste0(toString(object))),
+       main = c(paste0("Monthly Time Series Plot of ",toString(object))),
+       type="o")
+  points(y=ts,x=time(ts), pch=as.vector(season(ts)))
+  
+  par(mfrow=c(2,1))
+  acf(ts,
+      lag.max = 48,
+      main = c(paste0("ACF plot of ",toString(object))))
+  
+  pacf(ts, 
+       lag.max = 48,
+       main = c(paste0("PACF plot of ",toString(object))))
+  par(mfrow=c(1,1))
+  
+  print(adf.test(ts))
+  print(pp.test(ts))
+}
+
+# Function for Decomposition
+decom <- function(ts)
+{
+  decom.x12 = x12(ts)
+  plot(decom.x12 , sa=TRUE , trend=TRUE)
+  
+
+  plotSeasFac(decom.x12)
+  
+
+  decomposition <- stl(ts, t.window=15, s.window="periodic", robust=TRUE)
+  plot(decomposition)
+}
+
+
+ASX_data <- read_csv("ASX_data.csv")
+head(ASX_data)
+```
+
+After importing necessary libraries and dataset, We must convert each variable into time-series object.
+
+#### **ASX ordinaries Price Index**
+```{r}
+ASX_TS <- ts(ASX_data$`ASX price`, start = c(2004,1), frequency = 12)
+class(ASX_TS)
+head(ASX_TS)
+```
+
+#### **Gold Price (AUD)**
+```{r}
+gold_TS <- ts(ASX_data$`Gold price`, start = c(2004,1), frequency = 12)
+class(gold_TS)
+head(gold_TS)
+```
+
+#### **Crude Oil (Brent, USD/bbl)**
+```{r}
+oil_TS <- ts(ASX_data$`Crude Oil (Brent)_USD/bbl`, start = c(2004,1), frequency = 12)
+class(oil_TS)
+head(oil_TS)
+```
+
+#### **Copper (USD/tonne)**
+```{r}
+copper_TS <- ts(ASX_data$`Copper_USD/tonne`, start = c(2004,1), frequency = 12)
+class(copper_TS)
+head(copper_TS)
+```
+
+#### **Whole Dataset**
+```{r}
+ASX_data_TS = ts(ASX_data, start = c(2004,1), frequency = 12)
+class(ASX_data_TS)
+head(ASX_data_TS)
+```
+
+# **1.The existence of non-stationarity**
+The aim of this analysis is to check whether resprctive time object is stationary or not. The most common and accurate way is to check with visualization plots (Time Series plot, ACF - PACF plot) and confirm our assumption with unit root test.
+I am conssidering augmented Dickey-Fuller(ADF) and Phillips-Perron (PP) tests.
+
+## Descriptive Analysis
+The five characteristics of visualization plots are:
+
+  1.Trend
+  
+  2.Seasonality
+  
+  3.Changing Variance
+  
+  4.Moving Average of Auto-Regressive behaviour
+  
+  5.Intervention Point
+  
+
+**ASX Price**
+```{r}
+descriptive_analysis(ASX_TS, "ASX ords Price")
+```
+There is upward trend in the ASX ords price index after 2009, as price dropped between 2008-09 and there is little  bit of changing variance. Slowly decaying patterns from ACF plot confirm trend and highly significant co-relation lag on PACF plot stats non-stationarity.
+
+P-value of ADF test and PP test is > 0.05, which gives statistically assurance that series is non-stationary.
+
+**Gold Price**
+```{r}
+descriptive_analysis(gold_TS, "Gold Price(AUD)")
+```
+There is  obvious upward trend after 2006, while before that price was stable, there is no  obvious changing variance and intervention point.
+Slowly decaying patterns from ACF plot confirm trend and highly significant co-relation lag on PACF plot stats non-stationarity. P-value of ADF test and PP test is > 0.05, which gives statistically assurance that series is non-stationary.
+
+
+**Crude Oil Price**
+```{r}
+descriptive_analysis(oil_TS, "Crud Oil(USD/bbl)")
+```
+There is intervention point at 2008 and little bit of changind variance and trend.
+Slowly decaying patterns from ACF plot confirm trend and highly significant co-relation lag on PACF plot stats non-stationarity. P-value of ADF test and PP test is > 0.05, which gives statistically assurance that series is non-stationary.
+
+**Copper Price**
+```{r}
+descriptive_analysis(copper_TS, "Cooppr(USD/Tonne)")
+```
+There is upward trend with intervention point in 2008, however after 2012, price dropped. There is changing variance.While PACF plot and unit root test gives statistically evidence that series is non-stationary.
+
+Hence, the time-series is **Non-stationary**
+
+## Box-Cox Transformation
+To deal with changing variance and trend, transformation and differencing is required make the series stationary. However, order matters while performing these. Before doing differencing, we must do the transformation on time series. 
+
+After transforming, we have to check staionarity becasue sometimes, after transformation, series will become staionary without doing differencing.
+
+**ASX Price**
+```{r}
+ASX_TS_lambda = BoxCox.lambda(ASX_TS) 
+ASX_TS_lambda
+```
+
+```{r}
+ASX_TSBC = ((ASX_TS^(ASX_TS_lambda)) - 1) / ASX_TS_lambda
+descriptive_analysis(ASX_TSBC,"ASX ords price Index(Box-cox Transformed)")
+```
+After doing box-cox transformation on the series with lambda = 1.99, series is still non-stationary which can be confirmed by visuals and unit root test. Hence, differencing is needed.
+
+**Gold Price**
+```{r}
+gold_TS_lambda = BoxCox.lambda(gold_TS) 
+gold_TS_lambda
+```
+
+```{r}
+gold_TSBC = ((gold_TS^(gold_TS_lambda)) - 1) / gold_TS_lambda
+descriptive_analysis(gold_TSBC,"gold price(Box-cox Transformed) in AUD")
+```
+**Oil Price**
+```{r}
+oil_TS_lambda = BoxCox.lambda(oil_TS) 
+oil_TS_lambda
+```
+
+```{r}
+oil_TSBC = ((oil_TS^(oil_TS_lambda)) - 1) / oil_TS_lambda
+descriptive_analysis(oil_TSBC, "Crude oil price(Box-cox Transformaed) in USD/bbl")
+```
+**Copper**
+```{r}
+copper_TS_lambda = BoxCox.lambda(copper_TS) 
+copper_TS_lambda
+```
+
+```{r}
+copper_TSBC = ((copper_TS^(copper_TS_lambda)) - 1) / copper_TS_lambda
+descriptive_analysis(copper_TSBC,"Copper price(Box-cox Transformed) in USD/Tonne")
+```
+Even though, changing variance is better in Box-cox Transformed series, non-stationarity is still exist in every time series object, which is statistically approved by visual plots and non-stationarity. Hence, **differencing** is needed to convert the series into stationary.
+
+
+## Differencing
+**ASX ord price index**
+```{r}
+ASX_TSBC_diff = diff(ASX_TSBC)
+descriptive_analysis(ASX_TSBC_diff,"ASX price(Bc Transformed-1st diff)")
+```
+After takinf 1st order difference on box-cox transformed series, time series plot shows random pattern as series is mostly fluctuating around mean level with better changing variance.
+
+There is no significant correlation lag in ACF and PACF plot.While p-value in both unit root test is < 0.01, indicating series is stationary. 
+
+Hence, Series is staionary now after doing boxcox transformatoin and 1sr order differencing.
+
+
+**Gold Price**
+```{r}
+gold_TSBC_diff = diff(gold_TSBC)
+descriptive_analysis(gold_TSBC_diff,"gold price(BC Transformed-1st diff)")
+```
+
+
+**Oil Price**
+```{r}
+oil_TSBC_diff = diff(oil_TSBC)
+descriptive_analysis(oil_TSBC_diff, "Crude oil price(BC Transformed 1st diff)")
+```
+
+
+**Copper Price**
+```{r}
+copper_TSBC_diff = diff(copper_TSBC)
+descriptive_analysis(copper_TSBC_diff,"Copper price(BC Transformed-1st diff)")
+```
+Time series is stationary after Box-Cox transformation and 1st order differencing as visualization plot follows random patter, no significant correlation in ACF-PACF plot and p-value is < 0.01 in unit root tests for every variable.
+
+# **2.The impact of the components of a time series data**
+We can analyse impact of trend and seasonality of time series decompose the series into trend, seasonlity and remainder. Decompositino can be done by x12 and stl functions.
+
+## Decomposition
+**ASX ords Price**
+```{r}
+decom(ASX_TS)
+```
+From x12 graph, it is depicts that seasonaly adjusted series is mostly overlapping the original series, while the trend is deviated slighly from original.
+
+The adjusted seasonal factors are expected to have seaonal pattern around the mean level in every month, however factors are diverted and not following the seasonal pattern around mean for any month.
+
+From STL graph, we can conclude that, trend follows the original pattern with positive trend, then getting dropped for few years and rising again. Few tall bars from remainder series are caused by some external factors. Since there is no indication of seasonality in the ACF and visualisation plot, seasonality in STL is not meaningful.
+
+
+**Gold Price**
+```{r}
+decom(gold_TS)
+```
+From x12 graph, it is observed that seasonaly adjusted series is mostly overlapping the original series, while the trend is deviated slighly from original.
+
+The adjusted seasonal factors are diverted and not following the seasonal pattern around mean for any month.
+
+STL graph depicts that, trend follows the original pattern with continious upward trend. Since there is no indication of seasonality in the ACF and visualisation plot, seasonality in STL is not meaningful.
+
+**Crude Oil Price**
+```{r}
+decom(oil_TS)
+```
+From x12 graph, it is observed that seasonaly adjusted series is mostly overlapping the original series, while the trend has marginal deviation from original.
+
+The adjusted seasonal factors are diverted and not following the seasonal pattern around mean for any month. Infect, there are extreme outliers in the month of february, march, august and september.
+
+STL graph depicts that, trend follows the original pattern with continious upward trend till 2008, then intervention point occurs due to some external factors, which can be confirmed by spike in remainder part for the same time  period . Since there is no indication of seasonality in the ACF and visualisation plot, seasonality in STL is not meaningful.
+
+**Copper Price**
+```{r}
+decom(copper_TS)
+```
+From x12 graph, it is observed that seasonaly adjusted series is mostly overlapping the original series, while the trend has marginal deviation from original.
+
+The adjusted seasonal factors are diverted and not following the seasonal pattern around mean for any month. Infect, there are extreme outliers in every month.
+
+STL graph depicts that, trend follows the original pattern with continious upward trend till 2008, then intervention point occurs and price was droped and rose again by 2009, reached peacked on 2012 and price dropped again after that. Since there is no indication of seasonality in the ACF and visualisation plot, seasonality in STL is not meaningful.
+
+
+# **3.The most accurate and suitable distributed lag model**
+**Scaled Graph**
+```{r}
+ASX_scaled= scale(ASX_data_TS)
+plot(ASX_scaled, plot.type="s",
+     col =	c("blue", "red","green","black"), 
+     main= "ASX ordinaries and gold, oil, copper") 
+legend("topleft",lty=1,col=c("blue","red","green","black"), c("ASX(Y)", "Gold(X1)","Oil(X2)","Copper(X3)"))
+
+cor <- as.data.frame(cor(ASX_data_TS)) %>% round(3)
+kbl(cor) %>%
+  kable_paper()
+```
+
+Above scaled graph gives idea about which independent time series object(X1,X2,X3) closly followed by independent time series object(Y).
+
+Here, 
+
+Y = ASX ords Price,
+
+X1 = Gold Price
+
+X2 = Crude Oil Price
+
+X3 = Copper Price
+
+
+By inspection, it is observed that, copper price contribute the most for predicting ASX ords price. 
+
+Correlation Table confirms out assumpltion as correlation between copper and ASX is 0.562 which is far better than gold-ASX(0.343) and oil-ASX(0.329)
+
+
+## Model Fitting
+
+From correlation matrix, it is observed that, crude oil and copper are highly correlated with other. Hence, it is not advisable to include both of them into model fitting, since copper price is more correlated, it will be used alongside gold price to find the most accurate and suitable distributed model for ASX ordinaries price index. So, for finite distributed lag models and autoregressive distributed lag model, formula would be **ASX ~ gold + copper**.
+
+While, in terms of polynomial distributed lag model and Koyck model, only copper series will taken as independent series, since it has highest co-relation with dependent time series(ASX) and is more likely to explain ASX variation then others. 
+Since,Polynomial distributed lag model and Koyck model allows only one independent series, our formula would be **ASX ~ copper**
+
+
+## Finite Distributed Lag Models.
+```{r}
+ASX_m = as.data.frame(ASX_data[,c(1,2,3,4)])
+colnames(ASX_m) <- c("asx", "gold", "oil", "copper")
+for ( i in 1:12){
+  model1.1 = dlm(formula = asx ~ gold + copper, data = data.frame(ASX_m), q = i )
+  cat("q = ", i, "AIC = ", AIC(model1.1$model), "BIC = ", BIC(model1.1$model),"\n")
+}
+```
+
+```{r}
+model1 = dlm(formula = asx ~ gold + copper, data = data.frame(ASX_m), q = 12)
+summary(model1$model)
+checkresiduals(model1$model)
+vif(model1$model)
+```
+It is observed that the both AIC and BIC values are declinig as number of lag q increases, so attempt to fit the finite model with number of lags = 12 was taken.
+
+
+Summary depicts that, none of the lag-weights(co-efficients) are statistically significant at 5% level. While adjusted R squared is only 2%, even F-statistics of the model is statistically insignificant as p-value > 0.05. 
+
+Even though histogram of residuals is looking symetric, there is no random pattern in residuals, infect it looks like trend, which can be confirmed by decaying pattern in ACF. Breusch-Godfrey test supports serial correlation at 5% of statistical level.
+
+All vif values are above 10 indicating there is high multicollinearity in model.
+
+Hence, model is not a good fit for the given data and can not be further investigated.
+
+## Polynomial Distributed Lag Model
+
+The multicollinearity problem in finite DLM can be handled by polynomial DLM, as polynomial curves will be used to restrict the lag weights. The optimal lag length will be specified using function that fits finite DLMs for given range and order with error-type = AIC.
+
+```{r}
+
+finiteDLMauto(x = as.vector(ASX_m$copper), y = as.vector(ASX_m$asx), q.min = 1, q.max = 12, k.order = 1,
+              model.type = "poly", error.type ="AIC", trace = TRUE)
+```
+
+```{r}
+model2 = polyDlm(x = as.vector(ASX_m$copper), y = as.vector(ASX_m$asx), q = 10, k = 1, show.beta = TRUE)
+summary(model2$model)
+checkresiduals(model2$model)
+vif(model2$model)
+
+```
+Similar to finite DLM,  both AIC and BIC values are declinig as number of lag q increases, so attempt to fit the polynomial model with order = 1 and number of lags = 12 was taken.
+
+From summary, it is clear that all lag weights are statistically significant. The adjusted r-squared is 17.5%, which is comparetely better then DLM model, but it is still very low in generaal.While, the overall model is statistically significant as p-value for F-statistics is < 0.05.
+
+
+According to the model summary, all lag weights are significant at 5% level except lag 6 (p-value > 0.05). The adjusted R2 = 17.5% is slightly better than the finite DLM but still very low. The overall significance test reports the model is statistically significant at 5% level.
+
+
+Diagnostic Checking is not good as there is no random pattern in residuals, it looks like trend, which can be confirmed by decaying pattern in ACF. Breusch-Godfrey test supports serial correlation at 5% of statistical level.
+
+All vif values are above 10 indicating there is high multicollinearity in model.
+
+Hence, model is not a good fit for the given data and can not be further investigated.
+
+## Koyck Distributed Lag Model
+```{r}
+model3 = koyckDlm(x = as.vector(ASX_m$copper), y = as.vector(ASX_m$asx))
+summary(model3,diagnostics = TRUE)
+checkresiduals(model3$model)
+vif(model3$model)
+```
+
+From the summary section, it is conclude that X.t (current copper price) is not statistically significant, while Y.t is statistically significant. Overall koycl DLM model is statistically significant with p-value < 0.05. While adjusted R squared is 94.8% which extremely high.
+
+The statistically significant Weak instruments test is indicating that model at the first stage of least-squares estimation is significant. While, statistically significant Wu-Hausman test indicates thatt there is significant correlation between the explanatory variable and the error term.
+
+From the residual diagnostic, it is observed that that the residuals are completely random, fluctuating around mean level and there is no significant lag or pattern in ACF plot. Although, histogram is slightly left skewed.
+
+As vif value is < 10, there is no issue of multi-collinearity. 
+
+So far, koyck is best model.
+
+## Autoregressive Distributed Lag Model
+The attempt to fit ARDL DLM was taken to find the more appropriate model than Koyck distributed lag model.
+
+The loop was used to find the ardlDLM(p,q) parameters with range of lag lengths. AIC criteria was taken to find the optimal lag order p and q.
+```{r}
+for (i in 1:5)
+{
+  for(j in 1:5)
+  { 
+    model4 = ardlDlm(formula = asx ~ gold + copper, data = data.frame(ASX_m),p = i , q = j )
+    cat("p = ", i, "q =" , j,"AIC = ", AIC(model4$model), "BIC = ", BIC(model4$model), "\n")
+  }
+}
+```
+
+From AIC, following parameters were taken.
+
+ardlDLM(1,5)
+
+ardlDLM(2,5)
+
+ardlDLM(3,5), 
+
+All three models were investigated.
+
+**ardlDLM(1,5)**
+```{r}
+model4_1 = ardlDlm(formula = asx ~ gold + copper, data = data.frame(ASX_m), p = 1 , q = 5)
+summary(model4_1)
+checkresiduals(model4_1$model)
+vif(model4_1$model)
+```
+**ardlDLM(2,5)**
+```{r}
+model4_2 = ardlDlm(formula = asx ~ gold + copper, data = data.frame(ASX_m), p = 2 , q = 5)
+summary(model4_2)
+checkresiduals(model4_2$model)
+vif(model4_2$model)
+```
+
+**ardlDLM(3,5)**
+```{r}
+model4_3 = ardlDlm(formula = asx ~ gold + copper, data = data.frame(ASX_m), p = 3 , q = 5)
+summary(model4_3)
+checkresiduals(model4_3$model)
+vif(model4_3$model)
+```
+From summary section, it is observed that all ARDL models are statistically significant. In terms of AIC, statistically significant co-efficients and adjust R squared, ARDL(1,5) came out as the best ARDL model. It is observed that, ASX ordinaries price index is might be related to its prevoius month, gold price of current and previous month and copper price of current and previous month.
+
+The diagnostic checking of this model suggests that model has pure random pattern in the residuals, there is no signoificant corelation in the ACF plot and residuals are normally distributed over histogram.
+
+
+There is high multicollinearity as all the vif values are above 10.
+
+Hence, all these models are can not be further investigated.
+
+
+# Conclusion
+
+The analysis of dataset was started by exploring the visualisation, every series in the dataset was explored seperately before analyse relationship between them was taken. There was clear indication of intervention point in the year 2008, however, gold price did not suffer with financial crisis in 2008. Correlation gave indication that ASX all ordinaries price index is having slightly to moderate correlation with copper price.
+
+
+By analysing time-sereis plots, ACF - PACF plots and unit root tests, there was clear indication of non-stationarity in the dataest, which was then handled by BOX-COX transformation and taking 1st order difference.
+
+Then analysis of decomposition was taken. The STL plot, x12 plot were analysed and since, there was no clear indication of seasonal effcet on the dataset, conclusion was made that series is all about trend and there are other external factors influencing the ASX all ordinaries price index.
+
+Then, attempt to find most accurate and suitable distributed model fpr ASX all ordinaries price index was taken. After fitting Finite DLM model and ARDL model with ASX = gold + copper, and kyock and polynomial dlm model with ASX = copper, conclusion was made that most suitable model is **Koyck Distributed Lag Model**. As it has good diagnostics, great level of adjusted r squared, no multi-collinearity problem and high explainability.
+
+In nutshell, Koyck Distributed Lag Model is most accurate and suitable model for further forecasting for the given dataset.
+
+# Reference
+Class Lectures - Labs (module 1 - 3)
